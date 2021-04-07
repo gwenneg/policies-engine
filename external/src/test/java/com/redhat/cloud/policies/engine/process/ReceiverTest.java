@@ -11,7 +11,6 @@ import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.JsonDecoder;
 import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.commons.io.IOUtils;
-import org.eclipse.microprofile.metrics.MetricID;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.hawkular.alerts.api.model.action.ActionDefinition;
@@ -90,8 +89,6 @@ public class ReceiverTest {
     private static final String ACTION_PLUGIN = "email";
     private static final String ACTION_ID = "email-notif";
     private static final String TRIGGER_ID = "arch-trigger";
-
-    private final MetricID errorCount = new MetricID("engine.input.processed.errors", new org.eclipse.microprofile.metrics.Tag("queue", "host-egress"));
 
     private Action deserializeAction(String payload) {
         Action action = new Action();
@@ -173,7 +170,7 @@ public class ReceiverTest {
         testSubscriber.awaitCount(2);
         testSubscriber.assertValueCount(2);
 
-        Counter hostEgressProcessingErrors = meterRegistry.find(errorCount.getName()).counter();
+        Counter hostEgressProcessingErrors = meterRegistry.counter("engine.input.processed.errors", "queue", "host-egress");
         assertEquals(1.0, hostEgressProcessingErrors.count());
         testSubscriber.dispose();
 

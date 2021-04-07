@@ -2,11 +2,11 @@ package com.redhat.cloud.policies.engine.process;
 
 import com.google.common.collect.Multimap;
 import com.google.common.collect.MultimapBuilder;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
-import org.eclipse.microprofile.metrics.Counter;
-import org.eclipse.microprofile.metrics.annotation.Metric;
 import org.eclipse.microprofile.reactive.messaging.Acknowledgment;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
@@ -15,6 +15,7 @@ import org.hawkular.alerts.api.services.AlertsService;
 import org.hawkular.alerts.log.MsgLogger;
 import org.hawkular.alerts.log.MsgLogging;
 
+import javax.annotation.PostConstruct;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.util.ArrayList;
@@ -80,37 +81,31 @@ public class Receiver {
     AlertsService alertsService;
 
     @Inject
-    @Metric(absolute = true, name = "engine.input.processed", tags = {"queue=host-egress"})
+    MeterRegistry meterRegistry;
+
     Counter incomingMessagesCount;
-
-    @Inject
-    @Metric(absolute = true, name = "engine.input.rejected", tags = {"queue=host-egress"})
     Counter rejectedCount;
-
-    @Inject
-    @Metric(absolute = true, name = "engine.input.rejected.detail", tags = {"queue=host-egress","reason=type"})
     Counter rejectedCountType;
-
-    @Inject
-    @Metric(absolute = true, name = "engine.input.rejected.detail", tags = {"queue=host-egress","reason=noHost"})
     Counter rejectedCountHost;
-
-    @Inject
-    @Metric(absolute = true, name = "engine.input.rejected.detail", tags = {"queue=host-egress","reason=reporter"})
     Counter rejectedCountReporter;
-
-    @Inject
-    @Metric(absolute = true, name = "engine.input.rejected.detail", tags = {"queue=host-egress","reason=insightsId"})
     Counter rejectedCountId;
-
-    @Inject
-    @Metric(absolute = true, name = "engine.input.processed.errors", tags = {"queue=host-egress"})
     Counter processingErrors;
+
+    @PostConstruct
+    void initCounters() {
+        incomingMessagesCount = meterRegistry.counter("engine.input.processed", "queue", "host-egress");
+        rejectedCount = meterRegistry.counter("engine.input.rejected", "queue", "host-egress");
+        rejectedCountType = meterRegistry.counter("engine.input.rejected.detail", "queue", "host-egress", "reason", "type");
+        rejectedCountHost = meterRegistry.counter("engine.input.rejected.detail", "queue", "host-egress", "reason", "noHost");
+        rejectedCountReporter = meterRegistry.counter("engine.input.rejected.detail", "queue", "host-egress","reason", "reporter");
+        rejectedCountId = meterRegistry.counter("engine.input.rejected.detail", "queue" , "host-egress", "reason", "insightsId");
+        processingErrors = meterRegistry.counter("engine.input.processed.errors", "queue", "host-egress");
+    }
 
     @Incoming("events")
     @Acknowledgment(Acknowledgment.Strategy.MANUAL)
     public CompletionStage<Void> processAsync(Message<String> input) {
-        incomingMessagesCount.inc();
+        incomingMessagesCount.increment();
         if (log.isTraceEnabled()) {
             log.tracef("Received message, input payload: %s", input.getPayload());
         }
@@ -118,7 +113,7 @@ public class Receiver {
         try {
             json = new JsonObject(input.getPayload());
         } catch(Exception e) {
-            processingErrors.inc();
+            processingErrors.increment();
             return input.ack();
         }
         if (json.containsKey(TYPE_FIELD)) {
@@ -127,8 +122,8 @@ public class Receiver {
                 if (log.isDebugEnabled()) {
                     log.debugf("Got a request with type='%s', ignoring ", eventType);
                 }
-                rejectedCount.inc();
-                rejectedCountType.inc();
+                rejectedCount.increment();
+                rejectedCountType.increment();
                 return input.ack();
             }
         }
@@ -136,24 +131,24 @@ public class Receiver {
         if (json.containsKey(HOST_FIELD)) {
             json = json.getJsonObject(HOST_FIELD);
         } else {
-            rejectedCount.inc();
-            rejectedCountHost.inc();
+            rejectedCount.increment();
+            rejectedCountHost.increment();
             return input.ack();
         }
 
         // Verify host.reporter (not platform_metadata.metadata.reporter!) is one of the accepted values
         String reporter = json.getString(REPORTER_FIELD);
         if(!ACCEPTED_REPORTERS.contains(reporter)) {
-            rejectedCount.inc();
-            rejectedCountReporter.inc();
+            rejectedCount.increment();
+            rejectedCountReporter.increment();
             return input.ack();
         }
 
         String insightsId = json.getString(INSIGHT_ID_FIELD);
 
         if (isEmpty(insightsId)) {
-            rejectedCount.inc();
-            rejectedCountId.inc();
+            rejectedCount.increment();
+            rejectedCountId.increment();
             return input.ack();
         }
 

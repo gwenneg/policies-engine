@@ -5,12 +5,12 @@ import com.redhat.cloud.notifications.ingress.Action;
 import com.redhat.cloud.notifications.ingress.Event;
 import com.redhat.cloud.notifications.ingress.Metadata;
 import com.redhat.cloud.policies.engine.actions.plugins.notification.PoliciesAction;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.avro.io.DatumWriter;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.io.JsonEncoder;
 import org.apache.avro.specific.SpecificDatumWriter;
-import org.eclipse.microprofile.metrics.Counter;
-import org.eclipse.microprofile.metrics.annotation.Metric;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.OnOverflow;
@@ -21,6 +21,7 @@ import org.hawkular.alerts.api.model.condition.ConditionEval;
 import org.hawkular.alerts.api.model.condition.EventConditionEval;
 import org.hawkular.alerts.api.model.trigger.Trigger;
 
+import javax.annotation.PostConstruct;
 import javax.enterprise.context.Dependent;
 import javax.inject.Inject;
 import java.io.ByteArrayOutputStream;
@@ -60,19 +61,23 @@ public class NotificationActionPluginListener implements ActionPluginListener {
     Emitter<String> channel;
 
     @Inject
-    @Metric(absolute = true, name = "engine.actions.notifications.processed")
-    Counter messagesCount;
-
-    @Inject
-    @Metric(absolute = true, name = "engine.actions.notifications.aggregated")
-    Counter messagesAggregated;
+    MeterRegistry meterRegistry;
 
     @Inject
     ObjectMapper objectMapper;
 
+    Counter messagesCount;
+    Counter messagesAggregated;
+
+    @PostConstruct
+    void initCounter() {
+        messagesCount = meterRegistry.counter("engine.actions.notifications.processed");
+        messagesAggregated = meterRegistry.counter("engine.actions.notifications.aggregated");
+    }
+
     @Override
     public void process(ActionMessage actionMessage) throws Exception {
-        messagesCount.inc();
+        messagesCount.increment();
         PoliciesAction policiesAction = new PoliciesAction();
         policiesAction.setAccountId(actionMessage.getAction().getTenantId());
         policiesAction.setTimestamp(
@@ -142,7 +147,7 @@ public class NotificationActionPluginListener implements ActionPluginListener {
             PoliciesAction action = notificationEntry.getValue();
             try {
                 channel.send(serializeAction(action));
-                messagesAggregated.inc();
+                messagesAggregated.increment();
             } catch (IOException ex) {
                 log.log(Level.WARNING, ex, () -> "Failed to serialize action for accountId" + action.getAccountId());
             }
